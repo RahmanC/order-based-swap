@@ -11,8 +11,8 @@ async function main() {
 
   const [owner, user1, user2] = await ethers.getSigners();
 
-  const tokenAAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
-  const tokenBAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+  const tokenAAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"; // USDC
+  const tokenBAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F"; // DAI
 
   const tokenA = (await ethers.getContractAt(
     "IERC20",
@@ -23,35 +23,60 @@ async function main() {
     tokenBAddress
   )) as IERC20;
 
-  const amountA = ethers.parseEther("100");
-  const amountB = ethers.parseEther("200");
+  const amountA = ethers.parseUnits("100", 6); // 100 USDC
+  const amountB = ethers.parseUnits("200", 18); // 200 DAI
+
+  console.log("Checking balances...");
+  const user1BalanceA = await tokenA.balanceOf(user1.address);
+  const user2BalanceB = await tokenB.balanceOf(user2.address);
+  console.log(
+    `User1 balance of USDC: ${ethers.formatUnits(user1BalanceA, 6)} USDC`
+  );
+  console.log(
+    `User2 balance of DAI: ${ethers.formatUnits(user2BalanceB, 18)} DAI`
+  );
 
   // Approve tokens
+  console.log("Approving tokens...");
   await tokenA.connect(user1).approve(orderBasedSwap.getAddress(), amountA);
   await tokenB.connect(user2).approve(orderBasedSwap.getAddress(), amountB);
+  console.log("Tokens approved");
 
   console.log("Creating an order...");
-  const tx1 = await orderBasedSwap
-    .connect(user1)
-    .createOrder(tokenAAddress, amountA, tokenBAddress, amountB);
-  const receipt1 = (await tx1.wait()) as any;
-  const orderId = receipt1?.logs[0].args?.orderId;
-  console.log(`Order created with ID: ${orderId}`);
+  try {
+    const tx1 = await orderBasedSwap
+      .connect(user1)
+      .createOrder(tokenAAddress, amountA, tokenBAddress, amountB);
+    console.log("Transaction sent, waiting for confirmation...");
+    const receipt1 = await tx1.wait();
+    console.log("Transaction confirmed");
 
-  console.log("Fulfilling the order...");
-  const tx2 = await orderBasedSwap.connect(user2).fulfillOrder(orderId);
-  await tx2.wait();
-  console.log("Order fulfilled");
+    console.log("Transaction receipt:", receipt1);
 
-  // Check balances
-  const user1BalanceB = await tokenB.balanceOf(user1.address);
-  const user2BalanceA = await tokenA.balanceOf(user2.address);
-  console.log(
-    `User1 balance of Token B: ${ethers.formatEther(user1BalanceB)} TKB`
-  );
-  console.log(
-    `User2 balance of Token A: ${ethers.formatEther(user2BalanceA)} TKA`
-  );
+    // Get the current order ID from the contract
+    const currentOrderId = await orderBasedSwap.nextOrderId();
+    console.log("Current order ID from contract:", currentOrderId.toString());
+
+    // fulfill the order
+    console.log("Fulfilling the order...");
+    const tx2 = await orderBasedSwap
+      .connect(user2)
+      .fulfillOrder(BigInt(currentOrderId.toString()) - 1n);
+    await tx2.wait();
+    console.log("Order fulfilled");
+
+    // Check balances
+    const user1BalanceB = await tokenB.balanceOf(user1.address);
+    const user2BalanceA = await tokenA.balanceOf(user2.address);
+    console.log(
+      `User1 balance of DAI: ${ethers.formatUnits(user1BalanceB, 18)} DAI`
+    );
+    console.log(
+      `User2 balance of USDC: ${ethers.formatUnits(user2BalanceA, 6)} USDC`
+    );
+  } catch (error) {
+    console.error("Error:", error);
+  }
 }
 
 main().catch((error) => {
